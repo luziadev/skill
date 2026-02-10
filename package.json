@@ -1,6 +1,6 @@
 {
   "name": "@luziadev/skill",
-  "version": "1.0.0",
+  "version": "1.0.0-beta.3",
   "description": "Claude Code skill for real-time cryptocurrency prices from multiple exchanges via Luzia API",
   "author": "Luzia <support@luzia.dev>",
   "license": "MIT",
