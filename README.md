@@ -5,7 +5,7 @@ Claude Code skill for fetching real-time cryptocurrency prices from multiple exc
 ## Install
 
 ```bash
-npx skills add @luziadev/skill
+npx skills add luziadev/skill
 ```
 
 Or via GitHub:
