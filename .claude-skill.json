@@ -1,4 +1,9 @@
 {
   "name": "luzia",
-  "package": "@luziadev/skill"
+  "package": "@luziadev/skill",
+  "compatibility": "Requires a Luzia API key (lz_... format). Get one at https://luzia.dev",
+  "metadata": {
+    "primaryCredential": "LUZIA_API_KEY",
+    "requiredEnvVars": "LUZIA_API_KEY"
+  }
 }

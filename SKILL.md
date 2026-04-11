@@ -3,14 +3,22 @@ name: luzia
 homepage: https://luzia.dev
 user-invocable: true
 description: >
-  Use this skill whenever the user wants to fetch cryptocurrency prices, stream
-  real-time market data, list exchanges or markets, or retrieve historical OHLCV
-  candlestick data using the Luzia API (luzia.dev). Triggers include: any mention
-  of "Luzia", "crypto price", "BTC/USDT", "exchange ticker", "OHLCV", "real-time
-  price stream", or requests to connect to wss://api.luzia.dev. Also use when the
-  user wants to build trading bots, portfolio trackers, or price alert tools on
-  top of the Luzia platform. Do NOT use for non-Luzia crypto APIs (e.g. CoinGecko,
-  Binance direct) unless the user explicitly wants Luzia as the data source.
+  Cryptocurrency pricing skill using the Luzia API. Requires LUZIA_API_KEY env var (lz_... format).
+  Use when the user wants to fetch crypto prices, stream real-time market data, list exchanges
+  or markets, or retrieve historical OHLCV candlestick data. Triggers include: any mention of
+  "Luzia", "crypto price", "BTC/USDT", "exchange ticker", "OHLCV", "real-time price stream",
+  or requests to connect to wss://api.luzia.dev. Also use when the user wants to build trading
+  bots, portfolio trackers, or price alert tools on top of the Luzia platform. Do NOT use for
+  non-Luzia crypto APIs (e.g. CoinGecko, Binance direct) unless the user explicitly wants
+  Luzia as the data source.
+compatibility: >
+  Requires a Luzia API key (lz_... format) set as LUZIA_API_KEY environment variable.
+  Get one at https://luzia.dev
+metadata:
+  author: luziadev
+  version: "1.0.0"
+  primaryCredential: LUZIA_API_KEY
+  requiredEnvVars: LUZIA_API_KEY
 ---
 
 # Luzia API Integration Skill
