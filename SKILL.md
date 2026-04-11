@@ -1,463 +1,531 @@
 ---
 name: luzia
-description: Get real-time cryptocurrency prices from multiple exchanges via Luzia API
 homepage: https://luzia.dev
 user-invocable: true
+description: >
+  Use this skill whenever the user wants to fetch cryptocurrency prices, stream
+  real-time market data, list exchanges or markets, or retrieve historical OHLCV
+  candlestick data using the Luzia API (luzia.dev). Triggers include: any mention
+  of "Luzia", "crypto price", "BTC/USDT", "exchange ticker", "OHLCV", "real-time
+  price stream", or requests to connect to wss://api.luzia.dev. Also use when the
+  user wants to build trading bots, portfolio trackers, or price alert tools on
+  top of the Luzia platform. Do NOT use for non-Luzia crypto APIs (e.g. CoinGecko,
+  Binance direct) unless the user explicitly wants Luzia as the data source.
 ---
 
-# Luzia - Cryptocurrency Price API
+# Luzia API Integration Skill
 
-Luzia provides real-time cryptocurrency price data aggregated from multiple exchanges (Binance, Coinbase, Kraken, Bybit, OKX) through a unified REST API, WebSocket streaming, and a TypeScript SDK. Use this skill to fetch ticker prices, compare prices across exchanges, and explore available markets.
+## Overview
 
-## Configuration
+Luzia (luzia.dev) provides **real-time cryptocurrency pricing** from multiple
+exchanges through a unified REST and WebSocket API.
 
-Before using this skill, you need a Luzia API key. Get one at https://luzia.dev
+- **Base REST URL:** `https://api.luzia.dev`
+- **WebSocket URL:** `wss://api.luzia.dev/v1/ws`
+- **Swagger UI:** `https://api.luzia.dev/docs`
+- **Docs:** `https://luzia.dev/docs`
 
-Set your API key in the skill configuration:
-```json
-{
-  "skills": {
-    "entries": {
-      "luzia": {
-        "enabled": true,
-        "env": {
-          "LUZIA_API_KEY": "lz_your_api_key_here",
-          "LUZIA_BASE_URL": "https://api.luzia.dev"
-        }
-      }
-    }
-  }
-}
-```
+---
 
-## TypeScript SDK
+## Core Principles
 
-The official SDK (`@luziadev/sdk`) provides a type-safe client with automatic retries, rate limit handling, and WebSocket support.
+1. **Always authenticate** — every endpoint requires `Authorization: Bearer lz_<key>`.
+2. **Choose REST vs WebSocket correctly** — REST for on-demand lookups; WebSocket for
+   streaming updates (Pro plan required).
+3. **Respect rate limits** — Free: 100 req/min, 5 000 req/day. Pro: 1 000 req/min, unlimited/day.
+4. **Use the right symbol format** — REST paths use `BTC-USDT` (hyphen); channel
+   subscriptions and response payloads use `BTC/USDT` (slash).
+5. **Handle errors explicitly** — inspect HTTP status codes for REST; handle `error`
+   message type for WebSocket.
 
-### Installation
+---
 
-```bash
-npm install @luziadev/sdk
-# or
-bun add @luziadev/sdk
-```
+## Authentication
 
-### Quick Start
-
-```typescript
-import { Luzia } from '@luziadev/sdk'
-
-const luzia = new Luzia({
-  apiKey: 'lz_your_api_key',
-  // Optional:
-  baseUrl: 'https://api.luzia.dev',  // default
-  timeout: 30000,                     // default (ms)
-  retry: {
-    maxRetries: 3,
-    initialDelayMs: 1000,
-    maxDelayMs: 30000,
-    backoffMultiplier: 2,
-    jitter: true,
-  },
-})
-
-// List exchanges
-const exchanges = await luzia.exchanges.list()
-
-// Get a single ticker
-const ticker = await luzia.tickers.get('binance', 'BTC/USDT')
-console.log(`BTC/USDT: $${ticker.last}`)
-
-// List tickers for an exchange (paginated)
-const { tickers, total } = await luzia.tickers.list('binance', { limit: 50 })
-
-// Get specific tickers across exchanges
-const { tickers } = await luzia.tickers.listFiltered({
-  exchange: 'binance',
-  symbols: ['BTC/USDT', 'ETH/USDT'],
-})
-
-// List markets with filters
-const { markets } = await luzia.markets.list('binance', {
-  base: 'BTC',
-  quote: 'USDT',
-  active: true,
-  limit: 100,
-})
-```
-
-### Error Handling (SDK)
-
-```typescript
-import { Luzia, LuziaError } from '@luziadev/sdk'
-
-try {
-  const ticker = await luzia.tickers.get('binance', 'BTC/USDT')
-} catch (error) {
-  if (error instanceof LuziaError) {
-    switch (error.code) {
-      case 'auth':       // Invalid API key
-      case 'rate_limit': // Rate limited (error.retryAfter has seconds to wait)
-      case 'not_found':  // Resource not found
-      case 'validation': // Invalid parameters (error.details)
-      case 'server':     // Exchange temporarily unavailable
-      case 'network':    // Network connectivity issue
-      case 'timeout':    // Request timed out
-    }
-  }
-}
-```
-
-### Rate Limit Info (SDK)
-
-```typescript
-const ticker = await luzia.tickers.get('binance', 'BTC/USDT')
-const info = luzia.rateLimitInfo
-// { remaining, limit, reset, dailyRemaining?, dailyLimit? }
-```
-
-The SDK automatically retries on rate limit (429), timeout (408), server errors (500/502/503/504), and network errors. Non-retryable errors (400, 401, 403, 404) are thrown immediately.
-
-## WebSocket (Real-Time Updates)
-
-Stream live ticker updates over WebSocket. Requires **Pro plan or higher**.
-
-### Quick Start (SDK)
-
-```typescript
-const luzia = new Luzia({ apiKey: 'lz_your_api_key' })
-const ws = luzia.createWebSocket({
-  autoReconnect: true,        // default: true
-  maxReconnectAttempts: 10,   // default: 10, 0 = infinite
-  reconnectDelayMs: 1000,     // default: 1000ms
-  maxReconnectDelayMs: 30000, // default: 30000ms
-  heartbeatIntervalMs: 30000, // default: 30000ms, 0 = disabled
-})
-
-ws.on('connected', (info) => {
-  console.log(`Connected (${info.tier}), max subs: ${info.limits.maxSubscriptions}`)
-  ws.subscribe(['ticker:binance:BTC/USDT', 'ticker:coinbase:ETH/USDT'])
-})
-
-ws.on('ticker', (data) => {
-  console.log(`${data.exchange} ${data.symbol}: $${data.data.last}`)
-})
-
-ws.on('error', (err) => {
-  console.error(`WebSocket error [${err.code}]: ${err.message}`)
-})
-
-ws.connect()
-```
-
-### Channel Format
-
-- `ticker:{exchange}:{symbol}` - Specific pair (e.g., `ticker:binance:BTC/USDT`)
-- `ticker:{exchange}` - All tickers from an exchange (e.g., `ticker:binance`)
-
-### Subscription Management
-
-```typescript
-ws.subscribe(['ticker:binance:BTC/USDT', 'ticker:kraken:ETH/USDT'])
-ws.unsubscribe(['ticker:binance:BTC/USDT'])
-console.log(ws.subscriptions) // ReadonlySet<string>
-console.log(ws.state)         // 'disconnected' | 'connecting' | 'connected' | 'reconnecting'
-ws.disconnect()               // Graceful close, disables auto-reconnect
-```
-
-### WebSocket Events
-
-| Event | Payload | Description |
-|-------|---------|-------------|
-| `connected` | `{ tier, limits }` | Connection established |
-| `ticker` | `{ exchange, symbol, data, timestamp }` | Price update |
-| `subscribed` | `{ channel }` | Subscription confirmed |
-| `unsubscribed` | `{ channel }` | Unsubscription confirmed |
-| `error` | `{ code, message }` | Error occurred |
-| `disconnected` | `{ code, reason }` | Connection closed |
-| `reconnecting` | `{ attempt, delayMs }` | Reconnect attempt |
-
-### WebSocket Connection Limits
-
-| Tier | Connections | Subscriptions / Connection |
-|------|-------------|----------------------------|
-| Free | Not available | -- |
-| Pro | 5 | 50 |
-| Enterprise | 25 | 500 |
-
-### Raw WebSocket Endpoint
+All requests require an API key in the `Authorization` header:
 
 ```
-GET /v1/ws?apiKey=lz_your_api_key
+Authorization: Bearer lz_your_api_key
 ```
 
-Requires WebSocket upgrade. Authentication via `?apiKey=` query param or `Authorization: Bearer` header. Returns `101 Switching Protocols` on success, `401` on auth failure, `403` if tier does not support WebSocket.
+API keys follow the format `lz_` + 32 random characters.
+Get one at: https://luzia.dev/signup
 
-## REST API Endpoints
+---
 
-Base URL: `${LUZIA_BASE_URL}/v1` (default: `https://api.luzia.dev/v1`)
+## Tier Summary
 
-All authenticated requests require the header: `Authorization: Bearer ${LUZIA_API_KEY}`
+| Feature              | Free          | Pro ($29.99/mo)     | Enterprise      |
+|----------------------|---------------|---------------------|-----------------|
+| REST requests/min    | 100           | 1 000               | Custom          |
+| REST requests/day    | 5 000         | Unlimited           | Unlimited       |
+| WebSocket access     | ❌            | ✅ (5 conns, 50 sub) | ✅ (25, 500 sub) |
+| History lookback     | 30 days       | 90 days             | Unlimited       |
 
-### Get Single Ticker Price
+---
 
-Fetch the current price for a specific trading pair on an exchange.
+## REST API Reference
 
-```
-GET /v1/ticker/:exchange/:symbol
-```
-
-**Parameters:**
-- `exchange` - Exchange identifier (e.g., `binance`, `coinbase`, `kraken`, `bybit`, `okx`)
-- `symbol` - Trading pair in format `BASE-QUOTE` (e.g., `BTC-USDT`, `ETH-USD`)
-- `maxAge` (query, optional) - Maximum data age in ms (default: 120000)
-
-**Example Request:**
-```bash
-curl -H "Authorization: Bearer ${LUZIA_API_KEY}" \
-  "${LUZIA_BASE_URL}/v1/ticker/binance/BTC-USDT"
-```
-
-**Example Response:**
-```json
-{
-  "exchange": "binance",
-  "symbol": "BTC-USDT",
-  "last": "43250.50",
-  "bid": "43249.00",
-  "ask": "43251.00",
-  "high": "43800.00",
-  "low": "42500.00",
-  "volume": "12543.234",
-  "timestamp": "2024-01-15T10:30:00Z"
-}
-```
-
-### Get All Tickers for Exchange
-
-Fetch all available ticker prices from a specific exchange (paginated).
-
-```
-GET /v1/tickers/:exchange
-```
-
-**Parameters:**
-- `exchange` - Exchange identifier
-- `limit` (query, optional) - Max results, default 20, max 50
-- `offset` (query, optional) - Pagination offset
-- `maxAge` (query, optional) - Maximum data age in ms
-
-**Example Request:**
-```bash
-curl -H "Authorization: Bearer ${LUZIA_API_KEY}" \
-  "${LUZIA_BASE_URL}/v1/tickers/binance?limit=50"
-```
-
-**Example Response:**
-```json
-{
-  "tickers": [
-    {
-      "symbol": "BTC-USDT",
-      "exchange": "binance",
-      "last": "43250.50",
-      "bid": "43249.00",
-      "ask": "43251.00",
-      "volume": "12543.234"
-    }
-  ],
-  "total": 350,
-  "limit": 50,
-  "offset": 0
-}
-```
-
-### Get Multiple Tickers (Bulk)
-
-Fetch tickers across exchanges with filtering.
-
-```
-GET /v1/tickers
-```
-
-**Parameters (all query, optional):**
-- `exchange` - Filter by exchange
-- `symbols` - Comma-separated symbol list (e.g., `BTC-USDT,ETH-USDT`)
-- `limit` - Max results, default 20, max 50
-- `offset` - Pagination offset
-- `maxAge` - Maximum data age in ms
-
-**Example Request:**
-```bash
-curl -H "Authorization: Bearer ${LUZIA_API_KEY}" \
-  "${LUZIA_BASE_URL}/v1/tickers?exchange=binance&symbols=BTC-USDT,ETH-USDT"
-```
-
-### List Supported Exchanges
-
-Get a list of all supported cryptocurrency exchanges. No authentication required.
+### 1. List Exchanges
 
 ```
 GET /v1/exchanges
 ```
 
-**Example Request:**
-```bash
-curl "${LUZIA_BASE_URL}/v1/exchanges"
-```
+Returns all supported exchanges with their status.
 
-**Example Response:**
+**Example response:**
 ```json
 {
   "exchanges": [
     { "id": "binance", "name": "Binance", "status": "active" },
-    { "id": "coinbase", "name": "Coinbase", "status": "active" },
-    { "id": "kraken", "name": "Kraken", "status": "active" },
-    { "id": "bybit", "name": "Bybit", "status": "active" },
-    { "id": "okx", "name": "OKX", "status": "active" }
+    { "id": "coinbase", "name": "Coinbase", "status": "active" }
   ]
 }
 ```
 
-### List Markets for Exchange
+---
 
-Get all available trading pairs on a specific exchange.
+### 2. List Markets for an Exchange
 
 ```
 GET /v1/markets/:exchange
 ```
 
-**Parameters:**
-- `exchange` - Exchange identifier
-- `base` (query, optional) - Filter by base currency (e.g., `BTC`)
-- `quote` (query, optional) - Filter by quote currency (e.g., `USDT`)
-- `active` (query, optional) - Filter by active status
-- `limit` (query, optional) - Max results, default 100, max 100
-- `offset` (query, optional) - Pagination offset
+Returns all trading pairs available on the given exchange.
 
-**Example Request:**
-```bash
-curl -H "Authorization: Bearer ${LUZIA_API_KEY}" \
-  "${LUZIA_BASE_URL}/v1/markets/binance?quote=USDT"
-```
+**Path params:** `exchange` — e.g. `binance`, `coinbase`, `kraken`
 
-**Example Response:**
+**Example response:**
 ```json
 {
   "exchange": "binance",
   "markets": [
-    { "symbol": "BTC-USDT", "base": "BTC", "quote": "USDT", "active": true },
-    { "symbol": "ETH-USDT", "base": "ETH", "quote": "USDT", "active": true }
-  ],
-  "total": 2,
-  "limit": 100,
+    { "symbol": "BTC-USDT", "base": "BTC", "quote": "USDT" }
+  ]
+}
+```
+
+---
+
+### 3. Get Ticker (single pair)
+
+```
+GET /v1/ticker/:exchange/:symbol
+```
+
+Fetches the latest price for one trading pair.
+
+**Path params:**
+- `exchange` — e.g. `binance`
+- `symbol` — hyphen-separated, e.g. `BTC-USDT`
+
+**Query params:**
+- `maxAge` (optional, ms) — max acceptable data age. Default: `120000` (2 min).
+
+**Example response:**
+```json
+{
+  "symbol": "BTC/USDT",
+  "exchange": "binance",
+  "last": 67432.50,
+  "bid": 67430.00,
+  "ask": 67435.00,
+  "high": 68500.00,
+  "low": 66800.00,
+  "open": 67000.00,
+  "close": 67432.50,
+  "volume": 12345.678,
+  "quoteVolume": 832456789.50,
+  "change": 432.50,
+  "changePercent": 0.65,
+  "timestamp": "2024-01-20T12:00:00.000Z"
+}
+```
+
+---
+
+### 4. Get All Tickers for an Exchange
+
+```
+GET /v1/tickers/:exchange
+```
+
+Fetches prices for all pairs on an exchange. Supports pagination.
+
+**Query params:**
+- `maxAge` (optional, ms) — Default: `120000`
+- `limit` (optional) — Default: `20`, max: `50`
+- `offset` (optional) — Default: `0`
+
+**Example response:**
+```json
+{
+  "tickers": [ { /* same shape as single ticker */ } ],
+  "total": 150,
+  "limit": 20,
   "offset": 0
 }
 ```
 
-## Usage Examples
+---
 
-When users ask about cryptocurrency prices, use the Luzia API:
+### 5. Historical OHLCV Data
 
-### "What's the current Bitcoin price?"
+```
+GET /v1/history/:exchange/:symbol
+```
 
-1. Fetch from Binance (most liquid):
-   ```
-   GET ${LUZIA_BASE_URL}/v1/ticker/binance/BTC-USDT
-   Headers: Authorization: Bearer ${LUZIA_API_KEY}
-   ```
+Returns candlestick data for a trading pair.
 
-2. Report the price with bid/ask spread
+**Path params:** `exchange`, `symbol` (hyphen format, e.g. `BTC-USDT`)
 
-### "Compare ETH prices across exchanges"
+**Query params:**
+- `interval` — `1m` | `5m` | `15m` | `1h` | `1d`
+- `limit` — default `300`, max `500`
+- `start` — Unix ms timestamp (default: 24h ago)
+- `end` — Unix ms timestamp (default: now)
 
-1. Fetch from multiple exchanges in parallel:
-   ```
-   GET ${LUZIA_BASE_URL}/v1/ticker/binance/ETH-USDT
-   GET ${LUZIA_BASE_URL}/v1/ticker/coinbase/ETH-USD
-   GET ${LUZIA_BASE_URL}/v1/ticker/kraken/ETH-USD
-   ```
+**Example response:**
+```json
+{
+  "exchange": "binance",
+  "symbol": "BTC-USDT",
+  "interval": "1h",
+  "candles": [
+    {
+      "open": 67000.00,
+      "high": 67450.00,
+      "low": 66950.00,
+      "close": 67432.50,
+      "volume": 1234.56,
+      "timestamp": "2024-01-20T12:00:00.000Z"
+    }
+  ],
+  "count": 24,
+  "start": "2024-01-20T00:00:00.000Z",
+  "end": "2024-01-21T00:00:00.000Z"
+}
+```
 
-2. Present a comparison table showing price differences and arbitrage opportunities
+---
 
-### "What trading pairs are available on Coinbase?"
+## REST: Code Patterns
 
-1. Fetch markets:
-   ```
-   GET ${LUZIA_BASE_URL}/v1/markets/coinbase
-   ```
-
-2. List the available pairs, optionally filtered by base currency
-
-### "Show me all crypto prices on Binance"
-
-1. Fetch all tickers:
-   ```
-   GET ${LUZIA_BASE_URL}/v1/tickers/binance?limit=50
-   ```
-
-2. Present as a formatted table sorted by volume or change
-
-### "Stream real-time BTC prices" (SDK only)
+### TypeScript / fetch
 
 ```typescript
-const luzia = new Luzia({ apiKey: 'lz_your_api_key' })
-const ws = luzia.createWebSocket()
-ws.on('connected', () => ws.subscribe(['ticker:binance:BTC/USDT']))
-ws.on('ticker', (data) => console.log(`$${data.data.last}`))
-ws.connect()
+const API_KEY = "lz_your_api_key";
+const BASE = "https://api.luzia.dev";
+
+async function getTicker(exchange: string, symbol: string) {
+  const res = await fetch(`${BASE}/v1/ticker/${exchange}/${symbol}`, {
+    headers: { Authorization: `Bearer ${API_KEY}` },
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+async function getHistory(exchange: string, symbol: string, interval = "1h", limit = 24) {
+  const url = new URL(`${BASE}/v1/history/${exchange}/${symbol}`);
+  url.searchParams.set("interval", interval);
+  url.searchParams.set("limit", String(limit));
+  const res = await fetch(url.toString(), {
+    headers: { Authorization: `Bearer ${API_KEY}` },
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+  return res.json();
+}
 ```
 
-## Rate Limits
+### Python / httpx
 
-Luzia enforces rate limits based on your subscription tier:
+```python
+import httpx
 
-| Tier | Price | Requests/Minute | Requests/Day | WebSocket |
-|------|-------|-----------------|--------------|-----------|
-| Free | Free | 100 | 5,000 | No |
-| Pro | $22.99/mo | 1,000 | 20,000 | Yes |
+API_KEY = "lz_your_api_key"
+BASE = "https://api.luzia.dev"
+HEADERS = {"Authorization": f"Bearer {API_KEY}"}
 
-Rate limit headers are included in all responses:
+def get_ticker(exchange: str, symbol: str) -> dict:
+    r = httpx.get(f"{BASE}/v1/ticker/{exchange}/{symbol}", headers=HEADERS)
+    r.raise_for_status()
+    return r.json()
+
+def get_history(exchange: str, symbol: str, interval: str = "1h", limit: int = 24) -> dict:
+    r = httpx.get(
+        f"{BASE}/v1/history/{exchange}/{symbol}",
+        headers=HEADERS,
+        params={"interval": interval, "limit": limit}
+    )
+    r.raise_for_status()
+    return r.json()
 ```
-X-RateLimit-Limit: 100
-X-RateLimit-Remaining: 95
-X-RateLimit-Reset: 1704067260
-Retry-After: 30  (only on 429)
+
+---
+
+## WebSocket API Reference
+
+> **Requires Pro plan or above.**
+
+### Connection
+
+```
+wss://api.luzia.dev/v1/ws
+Header: Authorization: Bearer lz_your_api_key
 ```
 
-If you receive a 429 response, wait for the `Retry-After` duration before retrying.
+### Channel Format
 
-## Error Handling
+| Channel                      | Description                          |
+|------------------------------|--------------------------------------|
+| `ticker:binance:BTC/USDT`   | Single pair from one exchange        |
+| `ticker:coinbase:ETH/USDT`  | Single pair from another exchange    |
+| `ticker:binance`             | All tickers from Binance (1 sub slot)|
 
-| Status | Meaning |
-|--------|---------|
-| 200 | Success |
-| 400 | Invalid request (check symbol format) |
-| 401 | Invalid or missing API key |
-| 403 | Feature not available for your tier |
-| 404 | Exchange or symbol not found |
-| 429 | Rate limit exceeded |
-| 503 | Exchange unavailable or stale data |
-| 500 | Server error |
+> ⚠️ **Symbol format in channels is slash** (`BTC/USDT`), not hyphen.
 
-## Supported Exchanges
+### Client → Server Messages
 
-| Exchange | ID | Ticker Pairs |
-|----------|----|-------------|
-| Binance | `binance` | BTC-USDT, ETH-USDT, ... |
-| Coinbase | `coinbase` | BTC-USD, ETH-USD, ... |
-| Kraken | `kraken` | BTC-USD, ETH-USD, ... |
-| Bybit | `bybit` | BTC-USDT, ETH-USDT, ... |
-| OKX | `okx` | BTC-USDT, ETH-USDT, ... |
+```json
+// Subscribe
+{ "type": "subscribe", "channels": ["ticker:binance:BTC/USDT"] }
 
-## Tips
+// Unsubscribe
+{ "type": "unsubscribe", "channels": ["ticker:binance:BTC/USDT"] }
 
-- Symbol format is always `BASE-QUOTE` (e.g., `BTC-USDT`, not `BTCUSDT`)
-- Use lowercase for exchange names (e.g., `binance`, not `Binance`)
-- The SDK uses `BASE/QUOTE` format (e.g., `BTC/USDT`) while the REST API uses `BASE-QUOTE` (e.g., `BTC-USDT`)
-- Cache responses when making multiple requests for the same data
-- Compare prices across exchanges to find arbitrage opportunities
-- Check the exchanges endpoint first to see which exchanges are currently active
-- Use the bulk tickers endpoint (`GET /v1/tickers`) to fetch multiple tickers in a single request
-- For real-time streaming, use the WebSocket API via the SDK (Pro tier required)
-- The SDK automatically handles retries with exponential backoff for transient errors
+// Heartbeat (send every 30s)
+{ "type": "ping" }
+```
+
+### Server → Client Messages
+
+```json
+// After connect
+{ "type": "connected", "tier": "pro", "limits": { "maxSubscriptions": 50 } }
+
+// Subscription confirmed
+{ "type": "subscribed", "channel": "ticker:binance:BTC/USDT" }
+
+// Heartbeat response
+{ "type": "pong", "timestamp": "2024-01-23T10:13:20.000Z" }
+
+// Price update
+{
+  "type": "ticker",
+  "exchange": "binance",
+  "symbol": "BTC/USDT",
+  "data": { /* same fields as REST ticker response */ },
+  "timestamp": "2024-01-23T10:13:20.050Z"
+}
+
+// Error
+{ "type": "error", "code": "SUBSCRIPTION_LIMIT", "message": "..." }
+```
+
+### WebSocket Error Codes
+
+| Code                  | Meaning                                        |
+|-----------------------|------------------------------------------------|
+| `CONNECTION_REJECTED` | Wrong tier or connection limit exceeded        |
+| `SUBSCRIPTION_LIMIT`  | Max subscriptions reached for your tier        |
+| `INVALID_CHANNEL`     | Bad channel format                             |
+| `INVALID_JSON`        | Message is not valid JSON                      |
+| `INVALID_REQUEST`     | Missing required fields                        |
+| `UNKNOWN_TYPE`        | Unrecognized message type                      |
+| `SERVER_SHUTDOWN`     | Server shutting down — reconnect shortly       |
+
+---
+
+## WebSocket: Code Patterns
+
+### Node.js / Native WebSocket (no SDK)
+
+```typescript
+import WebSocket from "ws"; // npm install ws
+
+const API_KEY = "lz_your_api_key";
+
+function createLuziaStream(channels: string[]) {
+  const ws = new WebSocket("wss://api.luzia.dev/v1/ws", {
+    headers: { Authorization: `Bearer ${API_KEY}` },
+  });
+
+  // Heartbeat every 30s
+  const heartbeat = setInterval(() => {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "ping" }));
+    }
+  }, 30_000);
+
+  ws.on("open", () => console.log("WebSocket open"));
+
+  ws.on("message", (raw: string) => {
+    const msg = JSON.parse(raw);
+    switch (msg.type) {
+      case "connected":
+        console.log("Connected — tier:", msg.tier);
+        ws.send(JSON.stringify({ type: "subscribe", channels }));
+        break;
+      case "subscribed":
+        console.log("Subscribed to:", msg.channel);
+        break;
+      case "ticker":
+        console.log(`[${msg.exchange}] ${msg.symbol}: $${msg.data.last}`);
+        break;
+      case "pong":
+        // heartbeat acknowledged
+        break;
+      case "error":
+        console.error(`WS error [${msg.code}]:`, msg.message);
+        break;
+    }
+  });
+
+  ws.on("close", (code, reason) => {
+    clearInterval(heartbeat);
+    console.log(`Disconnected: ${code} ${reason}`);
+    // implement exponential backoff reconnect here
+  });
+
+  ws.on("error", (err) => console.error("WS error:", err));
+
+  return ws;
+}
+
+// Usage
+createLuziaStream(["ticker:binance:BTC/USDT", "ticker:coinbase:ETH/USDT"]);
+```
+
+### Python / websockets
+
+```python
+import asyncio, json, websockets
+
+API_KEY = "lz_your_api_key"
+WS_URL = "wss://api.luzia.dev/v1/ws"
+
+async def stream_prices(channels: list[str]):
+    headers = {"Authorization": f"Bearer {API_KEY}"}
+    async with websockets.connect(WS_URL, additional_headers=headers) as ws:
+        async def heartbeat():
+            while True:
+                await asyncio.sleep(30)
+                await ws.send(json.dumps({"type": "ping"}))
+
+        asyncio.create_task(heartbeat())
+
+        async for raw in ws:
+            msg = json.loads(raw)
+            match msg["type"]:
+                case "connected":
+                    print(f"Connected — tier: {msg['tier']}")
+                    await ws.send(json.dumps({"type": "subscribe", "channels": channels}))
+                case "ticker":
+                    d = msg["data"]
+                    print(f"[{msg['exchange']}] {msg['symbol']}: ${d['last']}")
+                case "error":
+                    print(f"Error [{msg['code']}]: {msg['message']}")
+
+asyncio.run(stream_prices(["ticker:binance:BTC/USDT"]))
+```
+
+### Reconnection with Exponential Backoff (TypeScript)
+
+```typescript
+async function connectWithRetry(channels: string[], maxAttempts = 10) {
+  let attempt = 0;
+  const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
+
+  while (attempt < maxAttempts) {
+    try {
+      await createLuziaStream(channels); // resolves on close
+    } catch (err) {
+      attempt++;
+      const backoff = Math.min(1000 * 2 ** attempt + Math.random() * 500, 30_000);
+      console.log(`Reconnecting in ${Math.round(backoff)}ms (attempt ${attempt})`);
+      await delay(backoff);
+    }
+  }
+  throw new Error("Max reconnect attempts reached");
+}
+```
+
+---
+
+## SDK Quick Reference (Official)
+
+Both SDKs wrap REST and WebSocket with TypeScript types and auto-reconnect:
+
+### TypeScript SDK
+
+```bash
+npm install @luziadev/sdk
+```
+```typescript
+import { Luzia } from "@luziadev/sdk";
+const luzia = new Luzia({ apiKey: "lz_your_api_key" });
+
+// REST
+const ticker = await luzia.getTicker("binance", "BTC-USDT");
+
+// WebSocket
+const ws = luzia.createWebSocket({ autoReconnect: true });
+ws.on("connected", () => ws.subscribe(["ticker:binance:BTC/USDT"]));
+ws.on("ticker", (data) => console.log(data));
+ws.connect();
+```
+
+### Python SDK
+
+Docs: https://luzia.dev/docs/python-sdk
+
+---
+
+## Decision Tree: REST vs WebSocket
+
+```
+Need data?
+│
+├─ One-off / on-demand lookup?
+│   └─ Use REST → GET /v1/ticker/:exchange/:symbol
+│
+├─ All pairs on an exchange?
+│   └─ Use REST → GET /v1/tickers/:exchange  (paginate with limit/offset)
+│
+├─ Historical chart / backtesting?
+│   └─ Use REST → GET /v1/history/:exchange/:symbol  (choose interval)
+│
+└─ Continuous stream / sub-second updates?
+    ├─ Free tier? → Poll REST every N seconds (respect rate limits)
+    └─ Pro tier?  → WebSocket → subscribe to specific channels
+```
+
+---
+
+## Common Mistakes to Avoid
+
+| Mistake                                  | Fix                                              |
+|------------------------------------------|--------------------------------------------------|
+| Using `BTC/USDT` in REST URL path        | Use `BTC-USDT` (hyphen) in path params           |
+| Using `BTC-USDT` in WS channel name      | Use `BTC/USDT` (slash) in channel strings        |
+| Sending WS messages before `connected`   | Wait for `{ type: "connected" }` before subscribing |
+| No heartbeat on native WS                | Send `{ type: "ping" }` every 30 seconds         |
+| Subscribing to exchange-level channel unnecessarily | Use symbol-level channels to save sub slots |
+| Forgetting `maxAge` for latency-sensitive apps | Set `maxAge=5000` (5s) for fresher REST data |
+| Not handling `SERVER_SHUTDOWN` error     | Reconnect with backoff when you receive this code|
+
+---
+
+## Useful Links
+
+| Resource          | URL                                      |
+|-------------------|------------------------------------------|
+| Docs home         | https://luzia.dev/docs                   |
+| Swagger UI        | https://api.luzia.dev/docs               |
+| WebSocket docs    | https://luzia.dev/docs/websocket         |
+| TypeScript SDK    | https://luzia.dev/docs/sdk               |
+| Python SDK        | https://luzia.dev/docs/python-sdk        |
+| MCP Server        | https://luzia.dev/docs/mcp-server        |
+| Get API key       | https://luzia.dev/signup                 |
+| Manage API keys   | https://luzia.dev/keys                   |
